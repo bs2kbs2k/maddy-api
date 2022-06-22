@@ -1,10 +1,12 @@
-use std::net::SocketAddr;
+use std::{fs::File, io::BufReader};
 
+use actix_web::{post, web, App, HttpResponse, HttpServer};
 use argon2::Config;
 use rand::{RngCore, SeedableRng};
+use rustls::{Certificate, PrivateKey};
+use rustls_pemfile::{certs, pkcs8_private_keys};
 use serde::{Deserialize, Serialize};
 use sqlx::{Connection, Executor, SqliteConnection};
-use warp::Filter;
 
 lazy_static::lazy_static! {
     static ref TOKEN: String = std::env::var("TOKEN").unwrap();
@@ -19,43 +21,61 @@ struct RegistrationRequest {
 }
 
 #[tokio::main]
-async fn main() {
-    let register = warp::path("register")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024 * 16))
-        .and(warp::body::json())
-        .then(|user: RegistrationRequest| async move {
-            if user.token != TOKEN.as_str() {
-                return warp::reply::with_status(
-                    "Invalid token".to_string(),
-                    warp::http::StatusCode::UNAUTHORIZED,
-                );
-            }
-            let mut conn = SqliteConnection::connect(&format!("sqlite:{}", DB_URL.as_str()))
-                .await
-                .unwrap();
+async fn main() -> anyhow::Result<()> {
+    HttpServer::new(|| App::new().service(register))
+        .bind_rustls("0.0.0.0:443", do_config())?
+        .run()
+        .await?;
+    Ok(())
+}
 
-            if let Err(err) = conn
-                .execute(
-                    sqlx::query("INSERT INTO passwords (key, value) VALUES (?1, ?2)")
-                        .bind(user.username)
-                        .bind(hash(&user.password)),
-                )
-                .await
-            {
-                return warp::reply::with_status(
-                    format!("{}", err),
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
-            };
-            warp::reply::with_status("OK".to_string(), warp::http::StatusCode::OK)
-        });
-    warp::serve(register)
-        .tls()
-        .key_path(std::env::var("KEY_PATH").unwrap())
-        .cert_path(std::env::var("CERT_PATH").unwrap())
-        .run("0.0.0.0:443".parse::<SocketAddr>().unwrap())
-        .await;
+fn do_config() -> rustls::ServerConfig {
+    let config = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth();
+
+    let cert_file = &mut BufReader::new(File::open(std::env::var("CERT_PATH").unwrap()).unwrap());
+    let key_file = &mut BufReader::new(File::open(std::env::var("KEY_PATH").unwrap()).unwrap());
+
+    // convert files to key/cert objects
+    let cert_chain = certs(cert_file)
+        .unwrap()
+        .into_iter()
+        .map(Certificate)
+        .collect();
+    let mut keys: Vec<PrivateKey> = pkcs8_private_keys(key_file)
+        .unwrap()
+        .into_iter()
+        .map(PrivateKey)
+        .collect();
+
+    if keys.is_empty() {
+        eprintln!("Could not locate PKCS 8 private keys.");
+        std::process::exit(1);
+    }
+
+    config.with_single_cert(cert_chain, keys.remove(0)).unwrap()
+}
+
+#[post("/register")]
+async fn register(user: web::Json<RegistrationRequest>) -> HttpResponse {
+    if user.token != TOKEN.as_str() {
+        return HttpResponse::Unauthorized().finish();
+    }
+    let mut conn = SqliteConnection::connect(&format!("sqlite:{}", DB_URL.as_str()))
+        .await
+        .unwrap();
+    if let Err(err) = conn
+        .execute(
+            sqlx::query("INSERT INTO passwords (key, value) VALUES (?1, ?2)")
+                .bind(user.username.clone())
+                .bind(hash(&user.password)),
+        )
+        .await
+    {
+        return HttpResponse::InternalServerError().body(format!("{}", err));
+    };
+    HttpResponse::Ok().finish()
 }
 
 fn hash(password: &str) -> String {
