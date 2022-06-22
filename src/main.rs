@@ -1,4 +1,7 @@
-use std::{fs::File, io::BufReader};
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+};
 
 use actix_web::{post, web, App, HttpResponse, HttpServer};
 use argon2::Config;
@@ -43,18 +46,13 @@ fn do_config() -> rustls::ServerConfig {
         .into_iter()
         .map(Certificate)
         .collect();
-    let mut keys: Vec<PrivateKey> = pkcs8_private_keys(key_file)
+
+    let mut key = Vec::new();
+    key_file.read_to_end(&mut key).unwrap();
+
+    config
+        .with_single_cert(cert_chain, PrivateKey(key))
         .unwrap()
-        .into_iter()
-        .map(PrivateKey)
-        .collect();
-
-    if keys.is_empty() {
-        eprintln!("Could not locate PKCS 8 private keys.");
-        std::process::exit(1);
-    }
-
-    config.with_single_cert(cert_chain, keys.remove(0)).unwrap()
 }
 
 #[post("/register")]
