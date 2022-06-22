@@ -63,6 +63,7 @@ fn hash(password: &str) -> String {
     rand::rngs::StdRng::from_entropy().fill_bytes(&mut salt);
     let config = Config {
         variant: argon2::Variant::Argon2id,
+        hash_length: 64,
         ..Default::default()
     };
     let hashed = argon2::hash_raw(password.as_bytes(), &salt, &config).unwrap();
