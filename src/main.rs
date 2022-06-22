@@ -60,7 +60,7 @@ async fn register(user: web::Json<RegistrationRequest>) -> HttpResponse {
     if user.token != TOKEN.as_str() {
         return HttpResponse::Unauthorized().finish();
     }
-    let mut conn = SqliteConnection::connect(&format!("sqlite://{}", DB_URL.as_str()))
+    let mut conn = SqliteConnection::connect(&format!("sqlite://{}?mode=rw", DB_URL.as_str()))
         .await
         .unwrap();
     if let Err(err) = conn
