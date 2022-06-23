@@ -4,12 +4,9 @@ use actix_web::{post, web, App, HttpResponse, HttpServer};
 use argon2::Config;
 use rand::{RngCore, SeedableRng};
 use rustls::{Certificate, PrivateKey};
-use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls_pemfile::certs;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs::{File, OpenOptions},
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-};
+use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 lazy_static::lazy_static! {
     static ref TOKEN: String = std::env::var("TOKEN").unwrap();
@@ -37,8 +34,10 @@ fn do_config() -> rustls::ServerConfig {
         .with_safe_defaults()
         .with_no_client_auth();
 
-    let cert_file = &mut BufReader::new(File::open(std::env::var("CERT_PATH").unwrap()).unwrap());
-    let key_file = &mut BufReader::new(File::open(std::env::var("KEY_PATH").unwrap()).unwrap());
+    let cert_file =
+        &mut BufReader::new(std::fs::File::open(std::env::var("CERT_PATH").unwrap()).unwrap());
+    let key_file =
+        &mut BufReader::new(std::fs::File::open(std::env::var("KEY_PATH").unwrap()).unwrap());
 
     // convert files to key/cert objects
     let cert_chain = certs(cert_file)
