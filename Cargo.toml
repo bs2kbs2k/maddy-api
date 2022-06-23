@@ -15,5 +15,4 @@ rust-argon2 = "1.0.0"
 rustls = "0.20.6"
 rustls-pemfile = "1.0.0"
 serde = { version = "1.0.137", features = ["derive"] }
-sqlx = { version = "0.6.0", features = ["sqlite", "runtime-tokio-rustls"] }
 tokio = { version = "1.19.2", features = ["full"] }

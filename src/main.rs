@@ -1,7 +1,4 @@
-use std::{
-    fs::File,
-    io::{BufReader, Read},
-};
+use std::io::{BufReader, Read};
 
 use actix_web::{post, web, App, HttpResponse, HttpServer};
 use argon2::Config;
@@ -9,7 +6,10 @@ use rand::{RngCore, SeedableRng};
 use rustls::{Certificate, PrivateKey};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use serde::{Deserialize, Serialize};
-use sqlx::{Connection, Executor, SqliteConnection};
+use tokio::{
+    fs::{File, OpenOptions},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+};
 
 lazy_static::lazy_static! {
     static ref TOKEN: String = std::env::var("TOKEN").unwrap();
@@ -60,19 +60,22 @@ async fn register(user: web::Json<RegistrationRequest>) -> HttpResponse {
     if user.token != TOKEN.as_str() {
         return HttpResponse::Unauthorized().finish();
     }
-    let mut conn = SqliteConnection::connect(&format!("sqlite://{}?mode=rw", DB_URL.as_str()))
-        .await
-        .unwrap();
-    if let Err(err) = conn
-        .execute(
-            sqlx::query("INSERT INTO passwords (key, value) VALUES (?1, ?2)")
-                .bind(user.username.clone())
-                .bind(hash(&user.password)),
-        )
+    let mut file = match OpenOptions::new()
+        .append(true)
+        .read(true)
+        .open(DB_URL.as_str())
         .await
     {
+        Ok(file) => file,
+        Err(err) => return HttpResponse::InternalServerError().body(format!("{}", err)),
+    };
+
+    let line = format!("\n{}:{}", user.username, hash(&user.password));
+
+    if let Err(err) = file.write_all(line.as_bytes()).await {
         return HttpResponse::InternalServerError().body(format!("{}", err));
     };
+
     HttpResponse::Ok().finish()
 }
 
